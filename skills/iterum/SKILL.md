@@ -1,36 +1,36 @@
 ---
 name: iterum
-description: Redis-backed operational memory for OpenClaw agents that use Kalshi tools. Use when the agent is about to call a Kalshi lookup or trading tool and there is a risk of repeating a known input-shape mistake, enum mismatch, or ticker-format failure across runs.
+description: Redis-backed operational context retrieval for OpenClaw agents. Use when the agent is about to use a brittle tool such as sqlite, web fetch, search, or another environment-dependent command and could benefit from remembered schemas, prior observations, or recovery playbooks before trying again.
 ---
 
 # Iterum
 
-Use Iterum before risky Kalshi tool calls that have failed before for the same user or namespace.
+Use Iterum before brittle tool calls when missing context is likely to cause avoidable errors.
 
-Prefer a safe wrapper flow over a direct tool call:
+Prefer this sequence:
 
-1. Send the intended Kalshi tool name and arguments to Iterum.
-2. If Iterum returns a corrected argument shape, use the corrected version.
-3. If the direct call still fails, record the failure and the fix so later runs avoid the same error.
+1. Identify the tool and the concrete resource involved, such as a database path, URL, or API domain.
+2. Ask Iterum for relevant facts, playbooks, and recent observations.
+3. Inject the returned `prompt_context` into your reasoning before using the tool.
+4. After you discover a durable fact or a reusable recovery approach, write it back to Iterum.
 
 ## Workflow
 
 Use this sequence:
 
-1. Identify the concrete Kalshi tool being used, such as market lookup or order placement.
-2. Check Iterum with the original arguments.
-3. If Iterum returns a remembered fix, apply it before the Kalshi call.
-4. If no fix exists, execute the Kalshi call normally.
-5. If the call fails and the repair is deterministic, retry once with the repaired arguments and store the fix in Redis.
-6. Surface whether the result came from a memory hit or a newly learned fix.
+1. Retrieve context with the tool name and resource id before the first brittle tool call.
+2. Use facts to avoid incorrect assumptions, such as stale schemas or unsupported parameters.
+3. Use playbooks to choose the right recovery procedure when errors occur.
+4. Use observations to understand recent environment state, such as an empty database or a preferred documentation domain.
+5. Store newly learned facts only when they are stable and reliable.
 
 ## Guardrails
 
-- Auto-apply only deterministic fixes.
-- Prefer single-field rewrites such as `ticker -> market_ticker` or enum normalization.
-- Do not invent market tickers or trade parameters.
-- If the fix is not obvious, stop and report the failure instead of guessing.
+- Treat Iterum as context, not authority.
+- Prefer advisory retrieval over autonomous fixes.
+- Store operational facts and playbooks, not long chat transcripts.
+- Keep injected context short and directly useful to the next tool decision.
 
 ## Resources
 
-Read [references/tooling.md](./references/tooling.md) when wiring the service into an OpenClaw demo or replacing the simulated Kalshi repair with the real example.
+Read [references/tooling.md](./references/tooling.md) when wiring the service into an OpenClaw wrapper or when storing new facts and observations.

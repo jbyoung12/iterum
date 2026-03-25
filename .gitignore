@@ -5,5 +5,5 @@ __pycache__/
 .mypy_cache/
 dist/
 build/
+*.egg-info/
 *.pyc
-

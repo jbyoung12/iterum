@@ -1,4 +1,4 @@
 interface:
   display_name: "Iterum"
-  short_description: "Avoid repeated Kalshi tool failures"
-  default_prompt: "Use $iterum before risky Kalshi tool calls so repeated mistakes are corrected from Redis-backed memory."
+  short_description: "Inject tool context before repeat failures"
+  default_prompt: "Use $iterum before brittle tool calls so schemas, playbooks, and recent observations are available in context."
