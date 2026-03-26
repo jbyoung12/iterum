@@ -8,6 +8,10 @@
 - Observation storage: `POST /v1/context/observations`
 - Debug listing: `GET /v1/debug/facts`, `GET /v1/debug/playbooks`, `GET /v1/debug/observations`
 - Health check: `GET /health`
+- Local helper scripts:
+  - `scripts/retrieve_context.sh`
+  - `scripts/store_fact.sh`
+  - `scripts/store_observation.sh`
 
 ## Current operating model
 
@@ -20,3 +24,4 @@
 1. Before a brittle tool call, send `tool_name`, `resource_id`, and optional `error_text` to Iterum.
 2. Inject the returned `prompt_context` into the agent prompt.
 3. After resolving the task, write back stable facts or observations that will help the next run.
+4. For repeated investigations, the second run should benefit from the first run's stored facts and observations.

@@ -1,0 +1,26 @@
+{
+  "id": "iterum-auto",
+  "name": "Iterum Auto",
+  "description": "Automatic Iterum context injection and sqlite fact learning hooks for OpenClaw",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "baseUrl": {
+        "type": "string",
+        "default": "http://127.0.0.1:8000"
+      },
+      "namespace": {
+        "type": "string",
+        "default": "default"
+      },
+      "enabledAgents": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "default": []
+      }
+    }
+  }
+}

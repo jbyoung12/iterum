@@ -2,3 +2,26 @@ interface:
   display_name: "Iterum"
   short_description: "Inject tool context before repeat failures"
   default_prompt: "Use $iterum before brittle tool calls so schemas, playbooks, and recent observations are available in context."
+
+# Auto-injection configuration
+middleware:
+  type: "pre-tool"
+  enabled: true
+  wrapper_module: "skills.iterum.tool_wrapper"
+  wrapper_class: "IterumToolWrapper"
+
+  # Tools that should always consult Iterum
+  intercept_tools:
+    - sqlite3
+    - psql
+    - mysql
+    - curl
+    - wget
+    - http_get
+    - http_post
+
+  # Configuration
+  config:
+    base_url: "http://127.0.0.1:8000"
+    namespace: "default"
+    auto_store: true  # Automatically store facts after errors
