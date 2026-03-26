@@ -1,14 +1,19 @@
-FROM python:3.11-slim
+FROM rust:1.87 AS builder
 
 WORKDIR /app
 
-COPY pyproject.toml README.md ./
-COPY app ./app
-COPY skills ./skills
+COPY Cargo.toml Cargo.lock ./
+COPY src ./src
 
-RUN pip install --no-cache-dir .
+RUN cargo build --release
+
+FROM debian:bookworm-slim
+
+RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /app/target/release/iterum /usr/local/bin/iterum
+COPY skills ./skills
 
 EXPOSE 8000
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
-
+CMD ["iterum"]

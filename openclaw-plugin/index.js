@@ -222,50 +222,30 @@ export default {
       if (!isExecLikeTool(event.toolName)) return;
 
       const command = getBashCommand(event.params);
-      if (!command || !isSqliteShellCommand(command)) return;
+      if (!command) return;
 
-      const resourceId = resourceIdForSqlite(command);
-      if (!resourceId) return;
-
-      const text = extractText(event.result).trim();
-      if (!text) return;
-
-      if (/\b\.tables\b/.test(command)) {
-        await postJson(config.baseUrl, "/v1/context/facts", {
-          namespace: config.namespace,
-          tool_name: "sqlite3",
-          resource_id: resourceId,
-          topic: "tables",
-          title: `Known tables for ${resourceId}`,
-          content: text,
-          confidence: 0.95
-        }, api.logger);
+      // Detect resource_id from command (still needed client-side for routing)
+      let resourceId = null;
+      if (isSqliteShellCommand(command)) {
+        resourceId = resourceIdForSqlite(command);
       }
 
-      const schemaTable = extractSchemaTable(command);
-      if (schemaTable) {
-        await postJson(config.baseUrl, "/v1/context/facts", {
-          namespace: config.namespace,
-          tool_name: "sqlite3",
-          resource_id: resourceId,
-          topic: `schema:${schemaTable}`,
-          title: `Schema for ${schemaTable}`,
-          content: text,
-          confidence: 0.95
-        }, api.logger);
-      }
+      const result = extractText(event.result);
+      const stdout = typeof result === "string" ? result : "";
+      if (!stdout.trim()) return;
 
-      if (/no such column|unknown column/i.test(text)) {
-        await postJson(config.baseUrl, "/v1/context/observations", {
-          namespace: config.namespace,
-          tool_name: "sqlite3",
-          resource_id: resourceId,
-          topic: "query_failure",
-          content: text,
-          confidence: 0.8,
-          ttl_seconds: 86400
-        }, api.logger);
-      }
+      // Send raw event to backend — extraction logic lives server-side
+      await postJson(config.baseUrl, "/v1/events/tool-result", {
+        namespace: config.namespace,
+        tool_name: event.toolName,
+        command,
+        resource_id: resourceId,
+        stdout,
+        stderr: null,
+        is_error: false,
+        agent_id: ctx?.agentId ?? null,
+        session_id: ctx?.sessionId ?? null
+      }, api.logger);
     }, { name: "iterum-auto-after-tool" });
   }
 };

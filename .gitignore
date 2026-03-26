@@ -1,4 +1,7 @@
 .env
+target/
+
+# Legacy Python artifacts
 .venv/
 __pycache__/
 .pytest_cache/

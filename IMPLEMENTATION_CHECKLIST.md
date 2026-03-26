@@ -2,7 +2,7 @@
 
 ## Goal
 
-Build Iterum as a Python service that retrieves and stores operational context for OpenClaw agents. The first version should improve agent behavior by injecting relevant facts, playbooks, and recent observations before brittle tool use.
+Build Iterum as a Rust service (Axum + Tokio) that retrieves and stores operational context for OpenClaw agents. The first version should improve agent behavior by injecting relevant facts, playbooks, and recent observations before brittle tool use.
 
 ## Core Runtime Flow
 
@@ -21,241 +21,84 @@ Build Iterum as a Python service that retrieves and stores operational context f
 
 ```text
 iterum/
-  app/
-    __init__.py
-    main.py
-    config.py
-    models.py
-    store.py
-    retrieval.py
-    ranking.py
-    context_formatter.py
-    adapters/
-      __init__.py
-      sqlite.py
-      web.py
+  src/
+    main.rs
+    lib.rs
+    config.rs
+    models.rs
+    error.rs
+    retrieval.rs
+    ranking.rs
+    formatter.rs
+    store/
+      mod.rs
+      memory.rs
+      redis_store.rs
     routes/
-      __init__.py
-      context.py
-      debug.py
+      mod.rs
+      context.rs
+      events.rs
+      debug.rs
+    extractors/
+      mod.rs
+      sqlite.rs
+      web.rs
+      cli.rs
   skills/
     iterum/
       SKILL.md
-      agents/openai.yaml
       references/tooling.md
   tests/
-    test_context_retrieval.py
-    test_sqlite_adapter.py
-    test_web_adapter.py
+    integration.rs
+  Cargo.toml
   PROJECT_PLAN.md
   IMPLEMENTATION_CHECKLIST.md
 ```
 
-## Exact Files To Build
+## Exact Files Built
 
-### `app/main.py`
+### `src/main.rs`
+- Creates Axum app, registers routes, initializes store, starts Tokio server
 
-Responsibility:
-- create FastAPI app
-- register routes
-- initialize Redis-backed store
-- expose dependency injection helpers
+### `src/config.rs`
+- Loads environment variables: `ITERUM_REDIS_URL`, `ITERUM_MEMORY_TTL_SECONDS`, `ITERUM_DEFAULT_NAMESPACE`, `ITERUM_MAX_CONTEXT_ITEMS`, `ITERUM_PORT`
 
-Interfaces:
-- app factory or module-level `app`
-- `get_store()`
-- `get_retriever()`
+### `src/models.rs`
+- Defines serde record types: `FactRecord`, `PlaybookRecord`, `ObservationRecord`, `ConstraintRecord`, `FailurePatternRecord`
+- Request/response types: `ContextRetrieveRequest`, `ContextRetrieveResponse`, `StoreFactRequest`, `StorePlaybookRequest`, `StoreObservationRequest`, `ToolResultEvent`, `ToolResultResponse`
 
-### `app/config.py`
+### `src/store/mod.rs`
+- Defines the `Store` trait with async methods for all record types
 
-Responsibility:
-- load environment variables
-- define service settings
+### `src/store/memory.rs`
+- In-memory `HashMap`-based store with TTL expiration for observations, constraints, and failure patterns
+- FIFO eviction for failure patterns per resource
 
-Fields:
-- `ITERUM_REDIS_URL`
-- `ITERUM_MEMORY_TTL_SECONDS`
-- `ITERUM_DEFAULT_NAMESPACE`
-- `ITERUM_MAX_CONTEXT_ITEMS`
+### `src/store/redis_store.rs`
+- Redis-backed store implementation
 
-### `app/models.py`
+### `src/retrieval.rs`
+- `ContextRetriever` generic over `Store`, fetches and ranks facts/playbooks/observations/constraints/failure patterns
 
-Responsibility:
-- define Pydantic request and response models
+### `src/ranking.rs`
+- Ranks items by confidence and freshness, limits per category
 
-Required models:
-- `ContextRetrieveRequest`
-- `ContextRetrieveResponse`
-- `FactRecord`
-- `PlaybookRecord`
-- `ObservationRecord`
-- `StoreFactRequest`
-- `StorePlaybookRequest`
-- `StoreObservationRequest`
+### `src/formatter.rs`
+- Formats retrieved records into prompt-ready context text
 
-Suggested shapes:
+### `src/extractors/`
+- `sqlite.rs`: Extracts schema facts, constraints, and failure patterns from SQLite tool output
+- `web.rs`: Web output extractor
+- `cli.rs`: CLI output extractor
 
-```python
-class ContextRetrieveRequest(BaseModel):
-    namespace: str = "default"
-    user_id: str | None = None
-    tool_name: str
-    resource_id: str | None = None
-    task_type: str | None = None
-    error_text: str | None = None
-    query: str | None = None
-```
+### `src/routes/context.rs`
+- `POST /v1/context/retrieve`, `/facts`, `/playbooks`, `/observations`
 
-```python
-class ContextRetrieveResponse(BaseModel):
-    namespace: str
-    tool_name: str
-    resource_id: str | None
-    facts: list[FactRecord]
-    playbooks: list[PlaybookRecord]
-    observations: list[ObservationRecord]
-    prompt_context: str
-```
+### `src/routes/events.rs`
+- `POST /v1/events/tool-result` — auto-extracts facts/constraints/patterns from tool output
 
-### `app/store.py`
-
-Responsibility:
-- read and write Redis records
-- maintain indexes
-- expose high-level storage methods
-
-Required methods:
-- `put_fact(record)`
-- `put_playbook(record)`
-- `put_observation(record)`
-- `list_facts(namespace, tool_name, resource_id=None)`
-- `list_playbooks(namespace, tool_name, error_family=None)`
-- `list_observations(namespace, tool_name, resource_id=None)`
-
-Redis key design:
-- `iterum:fact:{namespace}:{tool_name}:{resource_id}:{fact_id}`
-- `iterum:playbook:{namespace}:{tool_name}:{playbook_id}`
-- `iterum:observation:{namespace}:{tool_name}:{resource_id}:{observation_id}`
-
-Optional index keys:
-- `iterum:index:facts:{namespace}:{tool_name}:{resource_id}`
-- `iterum:index:playbooks:{namespace}:{tool_name}`
-- `iterum:index:observations:{namespace}:{tool_name}:{resource_id}`
-
-### `app/retrieval.py`
-
-Responsibility:
-- retrieve candidate records from the store
-- delegate ranking
-- return structured context response
-
-Required interface:
-
-```python
-class ContextRetriever:
-    def retrieve(self, request: ContextRetrieveRequest) -> ContextRetrieveResponse:
-        ...
-```
-
-Behavior:
-- fetch facts by exact tool and resource match
-- fetch playbooks by tool and optional error family
-- fetch recent observations by tool and resource
-- pass results to ranking and formatting layers
-
-### `app/ranking.py`
-
-Responsibility:
-- rank retrieved items so the prompt stays short and useful
-
-Rules for v1:
-- exact resource match first
-- higher confidence first
-- fresher observations first
-- max items per category from config
-
-Required functions:
-- `rank_facts(...)`
-- `rank_playbooks(...)`
-- `rank_observations(...)`
-
-### `app/context_formatter.py`
-
-Responsibility:
-- turn retrieved records into prompt-ready context text
-
-Required function:
-- `format_prompt_context(facts, playbooks, observations) -> str`
-
-Output style:
-- concise
-- operational
-- no extra narration
-
-Example output:
-
-```text
-Relevant facts:
-- SQLite table `strategy_pnl` has no `timestamp` column.
-
-Recommended playbooks:
-- On SQLite unknown-column errors, inspect `.schema <table>` before retrying.
-
-Recent observations:
-- `bot_btc_directional_dry.db` currently has zero rows in `runs`, `fills`, `orders`, and `positions`.
-```
-
-### `app/adapters/sqlite.py`
-
-Responsibility:
-- normalize SQLite-specific context
-- define helper functions for schema and empty-state observations
-
-Required helper functions:
-- `make_schema_fact(resource_id, table_name, columns, summary)`
-- `make_empty_state_observation(resource_id, counts)`
-- `make_unknown_column_playbook()`
-
-First facts/playbooks to support:
-- schema summaries
-- "inspect `.tables` and `.schema` before retrying unknown queries"
-- "if core tables are empty, report empty DB state early"
-
-### `app/adapters/web.py`
-
-Responsibility:
-- normalize web/search-specific context
-
-Required helper functions:
-- `make_search_then_fetch_playbook()`
-- `make_preferred_domain_fact(topic, domain)`
-- `make_fetch_observation(resource_id, note)`
-
-First playbooks to support:
-- if input is not a valid URL, search first
-- prefer official docs domains when known
-
-### `app/routes/context.py`
-
-Responsibility:
-- expose public context endpoints
-
-Endpoints:
-- `POST /v1/context/retrieve`
-- `POST /v1/context/facts`
-- `POST /v1/context/playbooks`
-- `POST /v1/context/observations`
-
-### `app/routes/debug.py`
-
-Responsibility:
-- expose inspection endpoints for manual verification
-
-Endpoints:
-- `GET /health`
-- `GET /v1/debug/facts`
-- `GET /v1/debug/playbooks`
-- `GET /v1/debug/observations`
+### `src/routes/debug.rs`
+- `GET /health`, `/v1/debug/facts`, `/playbooks`, `/observations`, `/constraints`, `/failure-patterns`
 
 ## HTTP API Contracts
 
@@ -368,85 +211,63 @@ The `skills/iterum/SKILL.md` instructions should tell the agent:
 
 ### First wrapper contract
 
-Even before deep OpenClaw integration, support a simple wrapper call:
+Even before deep OpenClaw integration, support a simple wrapper call via HTTP:
 
-```python
-context = iterum.retrieve(
-    tool_name="sqlite3",
-    resource_id=db_path,
-    task_type="analysis",
-    error_text=recent_error,
-)
+```bash
+curl -s http://127.0.0.1:8000/v1/context/retrieve \
+  -H 'content-type: application/json' \
+  -d '{"tool_name": "sqlite3", "resource_id": "/path/to/db", "task_type": "analysis", "error_text": "recent error"}'
 ```
 
-Then prepend:
+Then prepend the returned `prompt_context` to the agent prompt.
 
-```text
-Before using sqlite3, consider this known context:
-{context.prompt_context}
-```
+## Tests
 
-## Tests To Add
+### `tests/integration.rs`
 
-### `tests/test_context_retrieval.py`
-
-Verify:
-- exact tool and resource facts are returned
-- prompt context includes fact, playbook, and observation sections
-- ranking prefers exact matches
-
-### `tests/test_sqlite_adapter.py`
-
-Verify:
-- schema fact helpers create correct record shapes
-- unknown-column playbook is formatted correctly
-- empty-state observation is generated correctly
-
-### `tests/test_web_adapter.py`
-
-Verify:
-- search-then-fetch playbook is generated
-- preferred domain facts rank correctly
+Verifies:
+- Health check returns OK
+- Store and retrieve facts round-trip
+- Tool-result events extract schema facts
+- Tool-result events detect errors and create constraints + failure patterns
+- Failure pattern occurrence count increments on repeat
+- Debug endpoints return stored records
 
 ## Build Order
 
-### Phase 1: Service foundation
+### Phase 1: Service foundation (done)
 
-- [ ] Replace the current demo-specific models with generic context models in `app/models.py`
-- [ ] Replace mistake-memory-specific store logic in `app/store.py` with fact, playbook, and observation storage
-- [ ] Create `app/retrieval.py`
-- [ ] Create `app/ranking.py`
-- [ ] Create `app/context_formatter.py`
-- [ ] Split route handlers into `app/routes/context.py` and `app/routes/debug.py`
-- [ ] Update `app/main.py` to wire new routes and dependencies
+- [x] Define serde models in `src/models.rs`
+- [x] Implement `Store` trait and in-memory backend in `src/store/`
+- [x] Create `src/retrieval.rs`
+- [x] Create `src/ranking.rs`
+- [x] Create `src/formatter.rs`
+- [x] Wire routes in `src/routes/`
+- [x] Entry point in `src/main.rs`
 
-### Phase 2: SQLite first-class support
+### Phase 2: SQLite first-class support (done)
 
-- [ ] Create `app/adapters/sqlite.py`
-- [ ] Seed at least one SQLite schema fact
-- [ ] Seed at least one SQLite recovery playbook
-- [ ] Support recent empty-state observations
-- [ ] Add SQLite-focused retrieval tests
+- [x] Create `src/extractors/sqlite.rs`
+- [x] Auto-extract schema facts from `.schema` output
+- [x] Auto-create constraints from column errors
+- [x] Track failure patterns with occurrence counts
+- [x] Add integration tests
 
-### Phase 3: Web support
+### Phase 3: Web/CLI support (done)
 
-- [ ] Create `app/adapters/web.py`
-- [ ] Add search-then-fetch playbook support
-- [ ] Add preferred domain facts
-- [ ] Add web retrieval tests
+- [x] Create `src/extractors/web.rs`
+- [x] Create `src/extractors/cli.rs`
 
-### Phase 4: OpenClaw packaging
+### Phase 4: OpenClaw packaging (done)
 
-- [ ] Update `skills/iterum/SKILL.md` to reflect context-first behavior
-- [ ] Update `skills/iterum/references/tooling.md` with retrieval/store examples
-- [ ] Validate the skill metadata and wording
+- [x] Update `skills/iterum/SKILL.md` with context-first behavior
+- [x] Update `skills/iterum/references/tooling.md`
 
 ### Phase 5: Visibility and deployment
 
-- [ ] Add debug endpoints for listing stored records
-- [ ] Add a CLI or curl examples in `README.md`
-- [ ] Run local Redis and verify manual end-to-end retrieval
-- [ ] Deploy the FastAPI app
+- [x] Add debug endpoints for all record types
+- [x] Add curl examples in `README.md`
+- [ ] Deploy the Rust binary
 - [ ] Connect to Redis Cloud
 
 ## Deferred Work

@@ -1,15 +1,13 @@
-.PHONY: install test run redis
+.PHONY: build test run redis
 
-install:
-	python3 -m venv .venv
-	. .venv/bin/activate && pip install -e ".[dev]"
+build:
+	cargo build --release
 
 redis:
 	docker compose up -d redis
 
 run:
-	. .venv/bin/activate && uvicorn app.main:app --reload
+	cargo run
 
 test:
-	. .venv/bin/activate && pytest
-
+	cargo test

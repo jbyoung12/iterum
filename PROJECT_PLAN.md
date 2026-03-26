@@ -9,7 +9,7 @@ In practice, Iterum sits alongside tool use. Before an agent queries a SQLite da
 ## Build Plan
 
 1. Define the core product boundary.
-   Iterum should be a Python service for OpenClaw that retrieves and stores operational context, not a general autonomous fixer. The first supported outputs should be prompt-ready facts and recovery playbooks tied to a tool and resource.
+   Iterum should be a Rust service for OpenClaw that retrieves and stores operational context, not a general autonomous fixer. The first supported outputs should be prompt-ready facts and recovery playbooks tied to a tool and resource.
 
 2. Define the memory model in Redis.
    Create three first-class record types:
@@ -25,8 +25,8 @@ In practice, Iterum sits alongside tool use. Before an agent queries a SQLite da
    - that context is injected into the LLM/tool call prompt
    This avoids patching agent internals too early.
 
-4. Build the Python service skeleton.
-   Use FastAPI, Pydantic, and Redis. Implement endpoints like:
+4. Build the service skeleton.
+   Use Axum, serde, and Redis. Implement endpoints like:
    - `POST /v1/context/retrieve`
    - `POST /v1/context/store`
    - `POST /v1/context/observe`
@@ -107,4 +107,4 @@ In practice, Iterum sits alongside tool use. Before an agent queries a SQLite da
 - Add compaction and summarization for stale observations
 - Add support for more tool families like REST APIs and internal CLIs
 - Add lightweight UI or CLI inspection tools
-- Add deployment to a hosted FastAPI service with Redis Cloud
+- Add deployment of the Rust binary with Redis Cloud
